@@ -1,0 +1,6 @@
+# Scratch screenshots, backups and intermediate builds
+build/
+*.blend1
+*.bak
+1200,360:10
+.DS_Store

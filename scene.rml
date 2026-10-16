@@ -1,0 +1,70 @@
+<Rive version="1" kind="fragment">
+    <!-- The room is drawn entirely by main.luau on the GPU. This shell gives the
+         script a fill-sized layout, keyboard focus as the state machine starts,
+         and declares the fonts and sounds it reaches by name. -->
+    <Artboard viewModelId="0:100" viewModelInstanceId="0:101" defaultStateMachineId="0:7" clip="true" styleId="0:5" width="1280" height="720" name="room" id="0:2">
+        <LayoutComponentStyle name="Artboard Style" id="0:5"/>
+        <LayoutComponent width="100" height="100" styleId="0:11" name="Root" id="0:10">
+            <LayoutComponentStyle positionTypeValue="absolute" positionLeft="0" positionTop="0"
+                positionLeftUnitsValue="points" positionTopUnitsValue="points"
+                layoutWidthScaleType="fixed" layoutHeightScaleType="fixed"
+                widthUnitsValue="percent" heightUnitsValue="percent" name="Root Style" id="0:11"/>
+            <ScriptedLayout scriptAssetId="0:80" name="Room" id="0:20">
+                <FocusData name="Focus" id="0:21"/>
+            </ScriptedLayout>
+        </LayoutComponent>
+
+        <StateMachine name="State Machine 1" id="0:7">
+            <StateMachineLayer name="Layer 1" id="0:8">
+                <AnyState x="200" y="-120" id="0:88"/>
+                <ExitState x="400" y="-120" id="0:89"/>
+                <EntryState id="0:90">
+                    <StateTransition stateToId="0:12" id="0:91"/>
+                </EntryState>
+                <!-- Focus the room as the machine starts, so keys reach it when embedded. -->
+                <AnimationState x="200" animationId="0:6" id="0:12">
+                    <FocusActionTarget targetId="0:20" id="0:92"/>
+                </AnimationState>
+            </StateMachineLayer>
+        </StateMachine>
+
+        <LinearAnimation loopValue="loop" duration="60" name="Idle" id="0:6"/>
+    </Artboard>
+
+    <!-- The page and the scene talk through this: the scene writes each finished game or
+         exercise to "report" (a counter, then JSON); the page writes saved progress and
+         commands to "sync" (main.luau reads it). -->
+    <ViewModel defaultInstanceId="0:101" name="Progress" id="0:100">
+        <ViewModelPropertyString name="report" id="0:102"/>
+        <ViewModelPropertyString name="sync" id="0:103"/>
+        <ViewModelInstance exports="true" name="Default" id="0:101">
+            <ViewModelInstanceString propertyValue="" viewModelPropertyId="0:102"/>
+            <ViewModelInstanceString propertyValue="" viewModelPropertyId="0:103"/>
+        </ViewModelInstance>
+    </ViewModel>
+
+    <!-- Modules first: require only finds scripts registered above it. -->
+    <ScriptAsset file="scene_meta.luau" isModule="true" name="scene_meta" id="0:81" codeFileId="0:94"/>
+    <ScriptAsset file="glyphs.luau" isModule="true" name="glyphs" id="0:83" codeFileId="0:28638"/>
+    <ScriptAsset file="training.luau" isModule="true" name="training" id="0:84"/>
+    <ScriptAsset file="art.luau" isModule="true" name="art" id="0:82" codeFileId="0:4799"/>
+    <ScriptAsset file="sim.luau" isModule="true" name="sim" id="0:86"/>
+    <ScriptAsset file="games.luau" isModule="true" name="games" id="0:87"/>
+    <ScriptAsset file="ui.luau" isModule="true" name="ui" id="0:85"/>
+    <ScriptAsset file="main.luau" name="main" id="0:80" codeFileId="0:23927"/>
+
+    <FontAsset file="fonts/Barlow.ttf" name="Barlow" id="0:30"/>
+    <FontAsset file="fonts/BarlowBold.ttf" name="BarlowBold" id="0:31"/>
+    <FontAsset file="fonts/Mono.ttf" name="Mono" id="0:32"/>
+
+    <AudioAsset file="sounds/chiller_hum.wav" name="chiller_hum" id="0:40"/>
+    <AudioAsset file="sounds/pump_hum.wav" name="pump_hum" id="0:41"/>
+    <AudioAsset file="sounds/alarm.wav" name="alarm" id="0:42"/>
+
+    <!-- The same fonts as blobs, for runtimes without context:font (decoded with Font.decode). -->
+    <BlobAsset file="fonts/Barlow.ttf" name="Barlow_ttf" id="0:52"/>
+    <BlobAsset file="fonts/BarlowBold.ttf" name="BarlowBold_ttf" id="0:53"/>
+    <BlobAsset file="fonts/Mono.ttf" name="Mono_ttf" id="0:54"/>
+    <BlobAsset file="scene_vertices.bin" name="scene_vertices" id="0:50"/>
+    <BlobAsset file="scene_indices.bin" name="scene_indices" id="0:51"/>
+</Rive>

@@ -1,0 +1,18 @@
+name: chiller_room
+main: room
+artboard:
+  width: 1280
+  height: 720
+  background: "#292E36"
+exclude:
+  - build
+  - web
+  - tools
+  - fonts/OFL-Barlow.txt
+  - fonts/OFL-JetBrainsMono.txt
+logs:
+  file: build/rive.log
+  problems: build/problems.log
+push:
+  projectId: 1958225
+  fileId: 2643159

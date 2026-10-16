@@ -1,0 +1,1082 @@
+<title>Chiller Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the signed chiller_room.riv fills the page, played by @rive-app/webgl2. A plant-room HUD sits on top:
+   name and status top-left; controls drop down top-right (the scene's toolbar owns the bottom edge); change log in a side panel. Single dark look, matching the scene. */
+:root {
+  --bg: #292e36;
+  --hud: rgba(22, 26, 31, 0.78);
+  --hud-solid: #1b2026;
+  --fg: #e6eaee;
+  --muted: #9aa6b2;
+  --line: rgba(230, 234, 238, 0.14);
+  --screen: #40bff2;
+  --ok: #6fcf97;
+  --warn: #f2c14e;
+  --bad: #e07a6a;
+  --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 400 15px/1.5 var(--body); overflow: hidden; }
+.stage { position: relative; height: 100%; width: 100%; }
+canvas#view { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+
+.hud { position: absolute; background: var(--hud); border: 1px solid var(--line); border-radius: 8px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.top { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; pointer-events: none; }
+.top > * { pointer-events: auto; }
+.id { position: static; padding: 10px 14px; display: grid; gap: 4px; min-width: 0; }
+.id h1 { margin: 0; font: 700 1.3rem/1.1 var(--display); letter-spacing: 0.01em; }
+.label { font: 600 0.72rem/1.2 var(--display); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.read { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; font: 400 0.8rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.read b { color: var(--fg); font-weight: 500; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font: 600 0.78rem var(--display); letter-spacing: 0.05em; color: var(--warn); }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.ok { color: var(--ok); }
+.pill.bad { color: var(--bad); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+button { font: 600 0.85rem var(--display); letter-spacing: 0.05em; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--hud-solid); color: var(--fg); cursor: pointer; }
+button:hover { border-color: var(--screen); }
+#sound[aria-pressed="false"] { color: var(--muted); border-style: dashed; }
+button:focus-visible { outline: 2px solid var(--screen); outline-offset: 2px; }
+
+.keys { right: 16px; top: 64px; padding: 10px 12px; display: grid; gap: 6px; font-size: 0.85rem; }
+.keys[hidden] { display: none; }
+.keys div { display: flex; gap: 8px; align-items: center; }
+kbd { font: 500 0.74rem var(--mono); padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--hud-solid); min-width: 1.6em; text-align: center; }
+.hint { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); padding: 8px 14px; font: 600 0.9rem var(--display); letter-spacing: 0.04em; pointer-events: none; transition: opacity 0.4s; white-space: nowrap; }
+.hint.gone { opacity: 0; }
+.err { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100% - 32px)); padding: 16px 18px; display: grid; gap: 8px; }
+.err p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+
+.stick { bottom: 20px; width: 120px; height: 120px; border-radius: 50%; touch-action: none; display: none; }
+.stick.left { left: 20px; }
+.stick.right { right: 20px; }
+.stick span { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: rgba(230,234,238,0.25); border: 1px solid var(--line); pointer-events: none; }
+.stick em { position: absolute; left: 0; right: 0; top: -20px; text-align: center; font: 600 0.7rem var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-style: normal; }
+@media (pointer: coarse) {
+  .stick { display: block; }
+  .keys, #openKeys { display: none; }
+}
+@media (max-width: 560px) { .keys, #openKeys { display: none; } }
+
+.panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(380px, 100%); background: var(--hud-solid); border-left: 1px solid var(--line); padding: 20px 20px 28px; overflow-y: auto; display: grid; gap: 18px; align-content: start; }
+.panel header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.panel h2 { margin: 0; font: 600 1.25rem var(--display); }
+.panel h3 { margin: 0; font: 600 1rem var(--display); }
+.entry { display: grid; gap: 6px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.entry time { font: 400 0.8rem var(--mono); color: var(--muted); }
+.entry ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 4px; font-size: 0.92rem; }
+code { font: 400 0.82em var(--mono); overflow-wrap: anywhere; }
+pre { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; font: 400 0.8rem var(--mono); }
+.panel p { margin: 0; font-size: 0.92rem; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .hint { transition: none; } }
+
+/* Progression: rank and XP in the title box, level-up and badge pop-ups, leaderboard panel, nickname prompt. */
+.prog { display: grid; gap: 4px; margin-top: 2px; }
+.prog[hidden] { display: none; }
+.rankline { display: flex; align-items: baseline; gap: 8px; font: 600 0.82rem var(--display); letter-spacing: 0.04em; }
+.rankline .rank { color: var(--warn); text-transform: uppercase; }
+.rankline .lvl { color: var(--muted); font-family: var(--mono); font-weight: 400; font-size: 0.75rem; }
+.rankline .streak { margin-left: auto; color: #ff9d4d; }
+.xpbar { height: 6px; border-radius: 3px; background: rgba(230,234,238,0.12); overflow: hidden; width: 220px; max-width: 100%; }
+.xpbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #40bff2, #6fcf97); transition: width 0.8s cubic-bezier(.2,.8,.2,1); }
+.xpgain { position: absolute; left: 0; top: 0; font: 700 1rem var(--display); color: #6fcf97; pointer-events: none; animation: rise 1.4s ease-out forwards; }
+@keyframes rise { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-28px); } }
+.pop { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -10px) scale(0.92); opacity: 0; pointer-events: none; padding: 18px 26px; text-align: center; border-radius: 14px;
+  background: rgba(16, 20, 25, 0.94); border: 1px solid rgba(242,193,78,0.6); box-shadow: 0 0 40px rgba(242,193,78,0.25); transition: opacity 0.35s, transform 0.35s cubic-bezier(.2,1.4,.4,1); z-index: 5; }
+.pop.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.pop .k { font: 600 0.75rem var(--display); letter-spacing: 0.14em; color: var(--warn); text-transform: uppercase; }
+.pop .t { font: 700 1.9rem/1.15 var(--display); margin-top: 4px; }
+.pop .d { color: var(--muted); font-size: 0.92rem; margin-top: 4px; }
+.pop .icon { font-size: 2.2rem; line-height: 1; }
+.board ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.board li { display: grid; grid-template-columns: 2rem 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; background: rgba(230,234,238,0.05); }
+.board li.me { background: rgba(64,191,242,0.14); outline: 1px solid rgba(64,191,242,0.5); }
+.board .pos { font: 700 1.05rem var(--display); color: var(--muted); text-align: center; }
+.board li:nth-child(1) .pos { color: #f2c14e; } .board li:nth-child(2) .pos { color: #c8ced6; } .board li:nth-child(3) .pos { color: #cd7f32; }
+.board .who { min-width: 0; }
+.board .who b { display: block; font: 600 1rem var(--display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board .who span { font-size: 0.8rem; color: var(--muted); }
+.board .xp { font: 500 0.9rem var(--mono); }
+.badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.badge { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); font-size: 0.82rem; color: var(--muted); }
+.badge b { display: block; font: 600 0.92rem var(--display); color: var(--fg); }
+.badge.got { border-color: rgba(242,193,78,0.6); background: rgba(242,193,78,0.08); }
+.badge:not(.got) { opacity: 0.55; }
+.nickrow { display: flex; gap: 8px; }
+.nickrow input { flex: 1; min-width: 0; font: 500 0.95rem var(--body); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: #11151a; color: var(--fg); }
+.modal { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(8,10,14,0.6); z-index: 6; padding: 16px; }
+.modal[hidden] { display: none; }
+.modal .card { width: min(420px, 100%); background: var(--hud-solid); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: grid; gap: 12px; }
+.modal h3 { margin: 0; font: 700 1.3rem var(--display); }
+.modal p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+.primary { background: #3fbf74; color: #0c1014; border-color: transparent; }
+.note { font-size: 0.8rem; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .pop, .xpbar i { transition: none; } .xpgain { animation: none; opacity: 0; } }
+</style>
+
+<div class="stage">
+  <canvas id="view" tabindex="0" aria-label="First-person view of the chiller plant room, played from chiller_room.riv. Click, then use W and S to walk, Q and E to step sideways, and the arrow keys to look."></canvas>
+
+  <div class="top">
+    <div class="hud id">
+      <span class="label">chiller_room.riv · @rive-app/webgl2 2.43.1 · <span id="build">build</span></span>
+      <h1>Chiller Room</h1>
+      <div class="read">
+        <span class="pill" id="status">Loading the Rive file</span>
+        <span><b id="rf">–</b> fps</span>
+      </div>
+      <div class="prog" id="prog" style="position:relative">
+        <div class="rankline"><span class="rank" id="rankName">Trainee</span><span class="lvl" id="rankXp">0 XP</span><span class="streak" id="streak" hidden></span></div>
+        <div class="xpbar"><i id="xpFill"></i></div>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="sound" aria-pressed="true" title="Turn the room sound on or off (M)">Sound on</button>
+      <button type="button" id="openKeys" aria-expanded="true" aria-controls="keys" title="Show or hide the controls (C)">Controls (C)</button>
+      <button type="button" id="openBoard" aria-expanded="false" aria-controls="board">Leaderboard</button>
+      <button type="button" id="openLog" aria-expanded="false" aria-controls="log">Change log</button>
+    </div>
+  </div>
+
+  <div class="hud hint" id="hint">Walk with W S · step with Q E · click equipment to inspect it</div>
+
+  <div class="hud keys" id="keys" aria-label="Controls">
+    <div><kbd>W</kbd><kbd>S</kbd> walk · <kbd>Q</kbd><kbd>E</kbd> step left / right</div>
+    <div><kbd>Space</kbd> hold to walk faster · <kbd>R</kbd> jump</div>
+    <div><b style="font-weight:600">Stair</b> to the walkways: far end of the chiller hall</div>
+    <div><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> or drag to look</div>
+    <div><kbd>M</kbd> sound on or off</div>
+    <div><kbd>C</kbd> show or hide this list</div>
+    <div><b style="font-weight:600">Click</b> equipment to inspect · <kbd>Esc</kbd> closes</div>
+    <div><b style="font-weight:600">Begin Simulation</b> (toolbar) for training exercises</div>
+  </div>
+
+  <div class="hud stick left" id="moveStick" aria-label="Walk joystick"><em>Walk</em><span></span></div>
+  <div class="hud stick right" id="lookStick" aria-label="Look joystick"><em>Look</em><span></span></div>
+
+  <div class="hud err" id="err" hidden>
+    <h3 style="margin:0;font:600 1.05rem var(--display)">The room didn't load</h3>
+    <p id="errText"></p>
+  </div>
+
+  <div class="pop" id="pop" aria-live="polite"><div class="icon" id="popIcon"></div><div class="k" id="popK"></div><div class="t" id="popT"></div><div class="d" id="popD"></div></div>
+
+  <aside class="panel board" id="board" hidden>
+    <header>
+      <h2>Leaderboard</h2>
+      <button type="button" id="closeBoard">Close</button>
+    </header>
+    <div class="nickrow"><input id="nickInput" maxlength="20" placeholder="Your nickname" aria-label="Your nickname"><button type="button" id="nickSave">Save</button></div>
+    <p class="note" id="boardNote">Everyone in your organization who plays shows here by nickname.</p>
+    <ol id="boardList"></ol>
+    <h3>Your badges</h3>
+    <div class="badges" id="badgeList"></div>
+  </aside>
+
+  <div class="modal" id="nickModal" hidden>
+    <div class="card">
+      <h3>Pick a nickname</h3>
+      <p>It's what colleagues see on the leaderboard. Your real name is never shown.</p>
+      <div class="nickrow"><input id="nickFirst" maxlength="20" aria-label="Nickname"><button type="button" class="primary" id="nickGo">Let's go</button></div>
+      <button type="button" id="nickSkip">Not now</button>
+    </div>
+  </div>
+
+  <aside class="panel" id="log" hidden>
+    <header>
+      <h2>Change log</h2>
+      <button type="button" id="closeLog">Close</button>
+    </header>
+    <article class="entry">
+      <time datetime="2026-10-15">2026-10-15</time>
+      <h3>Utility yard, and the pipes to the data hall</h3>
+      <ul>
+        <li><b>Inside:</b> chilled water branches now tee off the supply and return headers behind CH-1 and run up and out through the north wall to the pipe bridge. Each has a red isolation valve with its handwheel, flanges and hangers, and a pipe marker ("CHWS to Data Hall 01", "CHW return from Data Hall 01"). The flow animation and the CHW supply/return highlights include them.</li>
+        <li><b>Outside, past the road:</b> a fenced <b>utility yard</b> with two standby diesel <b>generators</b> (GEN-1 and GEN-2) on fuel tanks with exhaust stacks, two pad-mounted <b>transformers</b> (TX-1 and TX-2) with DANGER HIGH VOLTAGE signs, medium-voltage switchgear, bollards, yard lights, and a chain-link fence with barbed wire and a double gate.</li>
+        <li>Fix: labels past the 64th never reached the GPU, so they showed up blank. That included the gauge dials from the earlier "fix", which only raised the limit in the shader. All 128 slots load now.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-15">2026-10-15</time>
+      <h3>Connected to Data Hall 01</h3>
+      <ul>
+        <li>Look out of the <b>north windows</b>: <b>Data Hall 01</b>, the building this plant cools, now stands across the service road. It has insulated metal panel walls on a concrete base, louvre banks, doors with canopies, a loading dock, wall lights, rooftop units and a lit sign.</li>
+        <li>A <b>pipe bridge</b> carries the chilled water supply and return between them: two big aluminium-jacketed lines leaving the plant's north wall, on steel supports and a truss over the road, into the data hall. Best seen from the north end of the walkway bridge over CH-1.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-15">2026-10-15</time>
+      <h3>No more sticking on the stair</h3>
+      <ul>
+        <li>Fixed getting stuck on the stair: stepping on near a handrail at the bottom, walking off the top onto the walkway near either rail, and stepping off the side of the lowest steps. You now glide along the rail instead of catching on an invisible ledge.</li>
+        <li>The stair's walking width now matches the walkway's, so there's no lip where they meet.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-15">2026-10-15</time>
+      <h3>Refrigerant safety station</h3>
+      <ul>
+        <li>By the plant room door, between the emergency shutoff and the eyewash: a <b>Refrigerant Safety Station</b> board with a red <b>SCBA cabinet</b> (air pack and face mask behind the window, monthly inspection tag), a yellow <b>SDS box</b> with binders, a handheld <b>leak detector</b>, a DANGER leak-response sign and a keep-clear floor outline.</li>
+        <li>Click the cabinet or the station for info cards: why SCBA hangs at the exit, who may use it, what the monthly check covers, and what to do when the refrigerant monitor alarms.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-15">2026-10-15</time>
+      <h3>Service gear: hoists and refrigerant pump-out</h3>
+      <ul>
+        <li>A yellow <b>monorail beam</b> over each chiller and its tube-pull area, hung from the roof steel and marked "CAPACITY 2 TON", with a red <b>manual chain hoist</b> on a trolley: hand chain loop, load chain and hook block, parked over the tube-pull zone and clear of the pipes.</li>
+        <li>A <b>refrigerant pump-out station</b> in the hall between CH-2 and CH-3: storage receiver <b>RS-1</b> on saddles (liquid and vapor valves, sight glass, dual relief valves vented to the roof), pump-out unit <b>PO-1</b> with its compressor, condenser fan, controls and gauges, hoses to the receiver, copper lines overhead to CH-2 and CH-3, a recovery cylinder on a hand truck, a caution sign and a yellow floor outline.</li>
+        <li>Click any of them for an info card with what it's for and what to check.</li>
+        <li>Fix: the last few gauge faces (some pump gauges, CH-1's water gauges and the fire riser gauge) were drawing without their dials.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-15">2026-10-15</time>
+      <h3>Cooling towers in the yard</h3>
+      <ul>
+        <li>Look out of the <b>south windows</b>: three crossflow <b>cooling tower</b> cells (CT-1 to CT-3, one per chiller) now stand in a gravel yard on a concrete pad, with corrugated galvanized casings, louvred air inlets, fan stacks, a railed fan deck and a caged ladder.</li>
+        <li><b>Vapor plumes</b> rise from the fan stacks and drift east on the breeze. The towers cast long shadows in the low evening sun (now further west).</li>
+        <li>The green <b>condenser water</b> piping runs back to the building: the return goes up and across the tower tops to each hot water basin through its own isolation valve; the supply leaves each cold water basin and comes back in low. Tower control cabinets sit on the pad.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-15">2026-10-15</time>
+      <h3>A view from the top</h3>
+      <ul>
+        <li><b>Windows</b> all the way round the upper level: a band of 39 clerestory windows at eye height from the walkways, with deep reveals, aluminium frames and sills that catch the daylight.</li>
+        <li>Outside: <b>snow-capped mountains</b> lit by a low golden-hour sun, forested foothills, a <b>lake</b> that mirrors the peaks, and clouds drifting slowly across the sky. Each side of the building has its own view, and it shifts naturally as you walk past.</li>
+        <li>From the floor you can see the sky through the windows up high. Take the stair to the south walkway, or walk out to the end of a bridge, for the best view.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-14">2026-10-14</time>
+      <h3>Race to the target</h3>
+      <ul>
+        <li>Every "go to the glowing equipment" step now has a <b>travel clock</b>, set from how far away the target is (with extra time when it's up on the walkway, or down from it). It counts down in the marker tag ("CH-2 Control Panel · 12 m · 0:18") and on the card, and turns red in the last 5 seconds.</li>
+        <li>Get there and click it in time for a <b>+2 speed bonus</b> ("Made it in 7 s!"). Miss it and it's "Too slow!": no bonus, but you carry on. Speed counts toward your stars, so hold <kbd>Space</kbd> to run.</li>
+        <li>The clock gets tighter as you advance, just like the mini-game timers: later steps, Round 2, hard mode and the Night Shift.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Beat the clock, and jobs up on the walkway</h3>
+      <ul>
+        <li><b>Every mini game has a time limit</b>, shown as a countdown and a bar across the top that turns red and flashes in the last 10 seconds. Run out and it's <b>TIME'S UP</b>: try again for full points, or skip for zero.</li>
+        <li><b>It gets harder as you advance:</b> each later game in an exercise allows a little less time, and Round 2, hard mode and the Night Shift each cut it further.</li>
+        <li><b>High-point air vents:</b> four automatic air vents rise from the water headers beside the chiller-hall bridge, with a sign. Air collects at a system's highest points, and technicians check these vents from the walkway.</li>
+        <li>The <b>Inspection Round</b> now has a seventh stop up there ("Climb to the walkway: check the header air vents"), and a new hidden problem: a vent spitting water. The <b>Night Shift</b> sends you up there too. From the floor the marker says "go up to the walkway".</li>
+        <li>Clicks now pass through walkway rails and grating to the equipment beyond.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>A clearer isolation game</h3>
+      <ul>
+        <li><b>Isolate CH-x for a work order</b> now opens with a work-order card: the job, the part to isolate in big red letters, and two numbered steps that tick off as you go. The part pulses on the diagram as "TO ISOLATE", and a legend shows blue = chilled water, green = condenser water.</li>
+        <li>Valves are big handwheels: click one to close it (it turns red). A valve on the wrong side shakes and says why, straight away, with no Check button to guess at. Once the part is cut off, its pipes drain and it shows "ISOLATED".</li>
+        <li><b>New last step:</b> lock and tag each closed valve (a red padlock and a DANGER tag appear on it). Gold for no wrong valves.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Command key fixed</h3>
+      <ul>
+        <li>Pressing <kbd>Command</kbd> (or <kbd>Control</kbd>) no longer leaves you walking on your own. macOS stops reporting released keys while Command is down, so the room now lets go of every movement key when you press or release it.</li>
+        <li>Command shortcuts belong to the browser again: <kbd>Cmd</kbd>+<kbd>R</kbd> reloads instead of jumping, <kbd>Cmd</kbd>+<kbd>M</kbd> no longer toggles the sound, and so on.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>A roomier stair landing</h3>
+      <ul>
+        <li>The stair moved 1.2 m west, so its foot has a landing about 2.2 m deep with open floor on two sides.</li>
+        <li>Stepping off the bottom is never held back any more: turn or side-step off it freely. The gentle guide onto the steps only works on the way in.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Easy stair, and R to jump</h3>
+      <ul>
+        <li><b>The stair no longer catches you at the bottom.</b> Walk up to it from any side, even a little off-center, and you're eased onto the steps and up.</li>
+        <li><kbd>R</kbd> jumps (about 0.9 m), standing or on the move, on the floor or up on the walkways.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Upstairs walkways, and one connected building</h3>
+      <ul>
+        <li><b>One building:</b> the wall between the plant room and the chiller hall is gone, except a short section behind the MCC ending in a steel column. The two spaces are now one continuous hall.</li>
+        <li><b>A taller roof</b> (10 m instead of 6 m). The pendant lights hang where they were on longer cables; the roof beams, sprinklers and pipe hangers go up to the new roof.</li>
+        <li><b>Upstairs walkways at 6 m:</b> a long walkway along the south wall from the plant room to the far end of the hall, and two bridges right across the building (one over the plant room, one over the chiller hall) for an aerial view of everything. They have steel grating, yellow handrails and toe boards, wall brackets and roof hangers.</li>
+        <li><b>Getting up:</b> the stair is at the far (east) end of the chiller hall, along the south wall. You climb it like a real stair; the handrails keep you on the walkways, and you can walk underneath them on the floor. Equipment can't be operated from a walkway: go back down to it.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Q and E to step sideways</h3>
+      <ul>
+        <li><kbd>Q</kbd> steps left and <kbd>E</kbd> steps right, instead of A and D. W and S still walk forward and back.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Phase 2: the chiller hall (CH-2 and CH-3)</h3>
+      <ul>
+        <li><b>The plant is bigger:</b> the east wall of the plant room now opens into a 28 m chiller hall with two more chillers, <b>CH-2</b> (running beside CH-1) and <b>CH-3</b> (the standby machine). Each is a full copy of CH-1: control panel with its own live screen, nameplate, gauges, isolation valves and tube-pull zone. The four water headers run overhead down the hall and drop into each chiller, and the lights, beams, sprinklers, cable tray and supply duct continue into it.</li>
+        <li><b>Click anything in the hall</b> for its own info and readings: CH-2 reads a slightly lower load than CH-1, and CH-3 shows STANDBY.</li>
+        <li><b>The exercises use the whole plant:</b> Hot Chilled Water can strike CH-1 or CH-2, the Inspection Round's chiller stops can be on either, Valve Hunt's work order can be for any of the three, and the Night Shift ends with a walk down the hall to isolate CH-3.</li>
+        <li>Behind the scenes: a rebuilt Blender exporter (this also fixes the pump suction gauges, which drew blank), room for twice as many screens and labels, and lights that follow you so the hall stays lit. The scene now loads in two parts.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Round 2, and a smoother valve</h3>
+      <ul>
+        <li><b>Round 2</b>: finish all six exercises (the five plus Night Shift) and Round 2 unlocks, with a big banner and a "Start Round 2" button. Every exercise comes back harder: two hidden problems and 7-second checks in the Inspection Round, a faster leak, both tower faults at once, a pump line-up with a valve someone left shut, a full chiller isolation, seven valve types to match, and a new flow target with a tighter band. Round 2 has its own medals, earns 1.5x XP and a "Next Level" badge. You can switch back to Round 1 for practice from the menu.</li>
+        <li><b>Night Shift</b> now unlocks once you've finished the five exercises (it used to need gold in all of them), so all six can be completed.</li>
+        <li><b>Balancing valve</b>: the wheel now turns the same way as your hand, with its knob staying under your cursor, so twisting along the CLOSE arrow closes the valve. The flow meter also responds a bit faster.</li>
+        <li>Spelling: "Keep practicing" on the results screen.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Twist the balancing valve</h3>
+      <ul>
+        <li><b>Balance the condenser water</b>: grab the handwheel and actually twist it, by circling the mouse or trackpad around it. Clockwise closes, as on a real valve, and the wheel turns under your hand. Arrows show which way closes and opens; small 1/8-turn buttons remain for fine-tuning.</li>
+        <li>The flow reading, status and balancing report no longer run off the right edge.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Phase 2, part 2: progress that sticks</h3>
+      <ul>
+        <li><b>XP and a technician rank</b> in the title box (Trainee, Apprentice Tech, Plant Technician, Senior Technician, Shift Lead, Chief Engineer, Plant Legend), with a level-up pop-up. Mini games earn XP by medal; hard mode doubles it.</li>
+        <li><b>Badges</b>: First Shift, Gold Rush, Flawless, Safety First, Detective, Combo King, Hard Hat, On a Roll, Full Set, Night Owl. See them under Leaderboard.</li>
+        <li><b>Today's Shift</b>: a green button at the top of the exercise menu. One exercise a day, with the same faults for everyone that day; finishing it earns +50 XP and builds a day streak.</li>
+        <li><b>Night Shift</b>: the finale, six faults back to back through one night, unlocked by gold in all five exercises.</li>
+        <li><b>Leaderboard</b> (top right): everyone in the organization who plays, by nickname only, ranked by XP. You pick your nickname after your first exercise and can change it any time.</li>
+        <li>Your progress, medals and hard-mode unlocks are saved and follow you between visits.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Phase 2, part 1: every exercise is a game</h3>
+      <ul>
+        <li><b>Every step is now a mini game.</b> New: <b>Spot it</b> (each Inspection Round stop: read the gauges against their green bands on a 10-second bar, call it normal or name the problem; right answers in a row build a <b>combo</b>), <b>Evidence board</b> (replaces the A/B/C diagnosis questions: pin the clues that prove it, pick the conclusion; red herrings don't count) and <b>Contain the leak</b> (Water Leak: the puddle spreads toward the 480 V MCC; lay absorbent socks, sign the walkway, report it).</li>
+        <li><b>Gold, silver and bronze</b> for every game, with a running clock and the gold target shown up top. Your best medal per exercise shows on the menu.</li>
+        <li><b>Random faults:</b> Pump Failure's failed pump can be CHWP-1 or CHWP-2 (alarm, drives, puzzles and readings all match). The cooling tower's fault can be cell 2 offline or fans stuck in HAND. Isolate CH-1 picks a random work order, and the Inspection Round hides a random problem.</li>
+        <li><b>Hard mode</b> unlocks per exercise once you get gold: no markers, no glow, double points.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Valve Hunt: three valve games</h3>
+      <ul>
+        <li><b>Match the valves</b> (at the pump suction valves): click one of the plant's five valve types (isolation, balancing, motorized, bypass, pump suction), then the job it does. Right pairs lock green with a line between them and a one-line explanation; wrong ones say why.</li>
+        <li><b>Isolate CH-1 for a work order</b> (at CH-1's isolation valves): a work order asks you to isolate the condenser or the evaporator. Close exactly the right valves on the chiller diagram; the isolated side grays out and drains. Closing a valve on the wrong side is explained.</li>
+        <li><b>Balance the condenser water</b> (at the balancing valve): the handwheel game, as before.</li>
+        <li>No more searching for valves by description; each step's equipment glows, as in the other exercises.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Next Exercise button</h3>
+      <ul>
+        <li>When you finish an exercise, the results card has a big green <b>Next Exercise</b> button at the top, naming what's next (for example "Next Exercise: Water Leak"). One click starts it. After the last exercise it goes back to the first. Play again and Other exercises are still there below it.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Lockout game: the fun layout is back</h3>
+      <ul>
+        <li><b>Lock out CHWP-1</b> is back to the radio, drive, disconnect switch, START station and kit layout, with the easy controls: every item has one green button (<b>Call control room</b>, <b>Stop the drive</b>, <b>Switch it OFF</b>, <b>Lock &amp; tag the switch</b>, <b>Test START</b>). Nothing to pick up. Press them in the safe order; a wrong move explains why. Done items turn green with a tick, and the goal card shows "x of 5 done".</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Simpler lockout game</h3>
+      <ul>
+        <li><b>Lock out CHWP-1</b> is now four big tiles, each with one button: <b>Stop the drive</b>, <b>Switch it OFF</b>, <b>Lock &amp; tag it</b>, <b>Test START</b>. The puzzle is the order: the tiles aren't laid out in the safe order, so you work it out. A wrong move explains why (for example, an arc flash if you switch off while the drive can run). Done tiles turn green with a tick, and a bar shows how many of 4 are done.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Lockout puzzle, walking motion, Controls (C)</h3>
+      <ul>
+        <li><b>Lock out CHWP-1 is now a real puzzle</b> instead of ordering a list. You get the radio, the pump's drive, its disconnect switch, a START button, and your kit (a padlock and a danger tag). Work out how to make the pump impossible to start, then prove it. Pick up the padlock or tag and click the disconnect to use it. Mistakes have consequences: pull the disconnect while the drive can still run and you get an arc flash, and testing START before it's locked is unsafe.</li>
+        <li><b>Walking feels real:</b> the view dips gently with each footstep and sways a touch side to side, a little more when you hold Space to go faster. It settles when you stop.</li>
+        <li>The <b>Controls</b> button now reads <b>Controls (C)</b>, so the shortcut is easy to spot.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Clearer pump check, and a drive panel game</h3>
+      <ul>
+        <li><b>Inspect pump CHWP-1 is easier to follow:</b> every part of the pump has a name tag. Click a part, and a bar asks "How do you check the motor?" with three buttons: Look, Temperature, Listen. The answer appears below and clues fill the board on the right. Numbered prompts (1 click a part, 2 choose how to check it) show what to do next.</li>
+        <li><b>New: Read the pump drives</b> (Pump Failure step 3, at the drive cabinets). A drive faceplate with a display and keys: switch between Drive 1 and Drive 2, press FAULT LOG, NEXT and STATUS, and answer three questions: why it stopped (F005 motor overload), how hard the motor worked (132 % current) and which pump is running now (CHWP-2, on auto standby). Each open question shows a hint. Pressing RESET is the trap: it explains why you shouldn't, and costs a star.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Inspect the pump: a hands-on check</h3>
+      <ul>
+        <li>Pump Failure's second step is now a mini game, <b>Inspect pump CHWP-1</b>, instead of just clicking it. Pick a tool (<b>Look</b>, <b>Temperature</b> or <b>Listen</b>) and click a part of the pump. Collect the 4 clues that it failed: the shaft isn't turning, the motor is still hot, the pump is silent, and the discharge gauge reads no higher than suction.</li>
+        <li>Some checks come back normal (the seal, the suction gauge), which shows what "fine" looks like. Using the wrong tool explains which one fits; fewer wrong tools earns more stars.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Valve game, and always the latest version</h3>
+      <ul>
+        <li><b>Valve Hunt now ends with a hands-on game:</b> <b>Balance the condenser water</b>. Turn the balancing valve's handwheel (drag it, or use the 1/2 and 1/8 turn buttons) until the flow meter settles at the design 1500 gpm, then hold it. Most of the flow change happens in the first few turns and the meter lags, so go gently. Valve Hunt is now: find two valves, then balance one.</li>
+        <li><b>Where the games are:</b> Pump Failure steps 5 and 6 (lock out and isolate CHWP-1), Hot Chilled Water step 5 (cooling tower), Valve Hunt step 3 (balancing valve). The exercise menu says which exercises have mini games.</li>
+        <li><b>No more stale versions:</b> the page always fetches the newest scene, and shows its build stamp at the top left next to the runtime version. If it's older than you expect, reload.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Mini games</h3>
+      <ul>
+        <li>Some steps are now <b>mini games</b>. Walk up to the glowing equipment and click it: the room dims and a puzzle opens. Solve it for 1-3 stars (fewer tries or a faster time earns more). <b>Back to the room</b> or <kbd>Esc</kbd> closes it; click the equipment again (or <b>Play the mini game</b> on the card) to go back in.</li>
+        <li><b>Lock out CHWP-1</b> (Pump Failure, at the pump disconnects): put the five lockout steps in the right order. Click a card, then click where it goes; <b>Check order</b> locks the right ones green.</li>
+        <li><b>Isolate CHWP-1</b> (Pump Failure, at the pump): a valve schematic. Open and close valves to cut CHWP-1 off while CHWP-2 keeps water flowing to the chiller. Moving dots show where water flows, and a wrong line-up tells you what would happen.</li>
+        <li><b>Cool the condenser water</b> (Hot Chilled Water, at CH-1's panel): drag the tower fan speed and bring cooling-tower cells online to get the condenser water into the green band, then hold it there. The water responds slowly, so don't overshoot.</li>
+        <li>Pump Failure's last question became the two pump games. Hot Chilled Water gets the tower game before its last question.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Water Leak is clearer</h3>
+      <ul>
+        <li><b>The water looks like water:</b> puddles and drops are now a wet blue instead of gray (they read like shadows before). Once you're inside the yellow ring the puddle shimmers blue, and the tag says "look down for water".</li>
+        <li><b>Just click:</b> clicking the puddle, and then the part it's dripping from, now answers straight away. There's no extra "This is the leak" button in the side panel any more.</li>
+        <li><b>Clearer steps:</b> each step says exactly what to do ("When you see the puddle, click it", "look straight up: drops fall from the leaking part"). Clicking the wrong kind of thing explains what to look for, without costing points.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Gentler alarm, cheer before each quiz</h3>
+      <ul>
+        <li>The alarm is now a <b>soft two-note chime</b> with a short pause between repeats, at a lower volume: easy to hear, not harsh.</li>
+        <li>When you finish a task and a question comes up, the card opens with <b>"GREAT JOB, TELL US WHAT HAPPENED!"</b>, then the A / B / C answers.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Alarm horn and a silence switch</h3>
+      <ul>
+        <li>When an exercise starts with an alarm (Pump Failure, Hot Chilled Water), a <b>two-tone alarm horn</b> sounds. The Sound button and <kbd>M</kbd> mute it too.</li>
+        <li>A new <b>PLANT ALARM SILENCE</b> switch sits on the wall by the door: a steel box with a big red push button, a yellow collar and a red beacon on top. While the alarm sounds it <b>glows red</b>, with a red marker and an arrow pointing to it.</li>
+        <li><b>Walk up and click the switch</b> to silence the alarm and complete the step. This replaces the old "Acknowledge alarm" button. The banner then reads "Alarm silenced": the fault itself is still there to find.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Space to walk faster</h3>
+      <ul>
+        <li>Hold <kbd>Space</kbd> while walking to go faster. Shift no longer does this.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Names on click, not on hover</h3>
+      <ul>
+        <li>Moving the mouse over equipment no longer pops up its name. Click it to see the name and details in the inspect panel.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Eyewash station rebuilt, and a C shortcut</h3>
+      <ul>
+        <li><b>The eyewash station is now a proper one:</b> floor flange, pedestal with its wall supply line, a yellow bowl with two spray heads under yellow dust caps, a drain, a stay-open valve with a green <b>PUSH</b> flag, and a yellow weekly-inspection tag on the pedestal.</li>
+        <li><b>It's easy to find:</b> a green <b>EMERGENCY EYEWASH STATION</b> sign on the wall above it, a green beacon light on top, and a green keep-clear outline on the floor.</li>
+        <li><b>Click it</b> to see how to use it (push the flag, flush for 15 minutes) and what to check on an inspection.</li>
+        <li>Press <kbd>C</kbd> to show or hide the Controls list.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Motor control center tidied up</h3>
+      <ul>
+        <li>The <b>MCC-1 nameplate</b> moved up onto the cabinet's top hood, framed and centred, instead of squeezed against the top row of indicator lights.</li>
+        <li>The <b>conduit on top of the MCC</b> used to stop in mid-air. It now runs up into the ceiling, as the 480 V power feed, and the MCC's info panel says so.</li>
+        <li>The <b>arc flash warning sign</b> moved off the bottom-left door, where it covered a handle, to the wall beside the MCC at eye height. It's larger and all five lines now fit ("QUALIFIED PERSONS ONLY" was cut off). Signs with many lines now shrink their text to fit.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Sound on/off</h3>
+      <ul>
+        <li>A <b>Sound</b> button at the top right (or the <kbd>M</kbd> key) turns the chiller and pump hum on or off. It fades out rather than cutting, and your browser remembers the choice next time.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Training made simpler, guided and more fun</h3>
+      <ul>
+        <li><b>The equipment you need glows.</b> The current target is coated in bright, breathing green with a green halo around its outline, plus a green pin and tag. Walk up to it (within about 3.5 m) and click it to complete the task; from farther away you're told to get closer. Once it's done the glow stops and a green tick takes its place.</li>
+        <li><b>The Inspection Round shows its checklist</b> on the card, starting with "Locate the main chiller, CH-1". Finished items are ticked, and the current one is highlighted and glowing in the room.</li>
+        <li><b>Markers show where to go.</b> A bouncing pin sits over the equipment you need, with its name and distance ("CHWP-1 · 14 m"). When it's out of view, an arrow at the edge of the screen points the way. Equipment you've checked gets a green tick.</li>
+        <li><b>Search tasks get a zone.</b> For "find it" tasks (valves, leaks) a yellow ring on the floor shows the area to search, without giving the answer away. <b>Show me where</b> reveals the exact spot for fewer points, and so do two wrong picks.</li>
+        <li><b>Shorter exercises, one thing at a time.</b> Pump Failure is 5 steps (was 7), Hot Chilled Water 5 (was 7), Water Leak 4, and Valve Hunt 3 valves (was 5). The Inspection Round is now the chiller plus six stops in order: at each, say <b>Looks normal</b> or <b>Something's wrong</b>, then decide what to do about the one hidden problem.</li>
+        <li><b>Short A / B / C answers</b>, with the explanation shown after you choose.</li>
+        <li><b>Points and feedback:</b> a progress bar and a running score on the card, +1 / +3 pop-ups, streaks for answers in a row, 1–3 stars and confetti at the end, and your best score per exercise on the menu.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-13">2026-10-13</time>
+      <h3>Sharper text, controls out of the way</h3>
+      <ul>
+        <li>The controls list moved from the bottom-left to a <b>Controls</b> button at the top right. It is open when you arrive and tucks away once you walk or click. It no longer covers the piping toolbar.</li>
+        <li>The inspect panel, toolbar, scenario card and alarm banner were blurry on Retina screens. The web runtime reports a scale of 1, so the scene drew them at half resolution and stretched them. The page now tells the scene the real pixel ratio.</li>
+        <li>Panels that shrink to fit narrow windows are now drawn at their final size and placed on whole pixels, instead of being scaled down after drawing.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>Technician training scenarios</h3>
+      <ul>
+        <li>A <b>Begin Simulation</b> button on the toolbar opens the training exercises. Nothing changes in the room until you start one, and ending the simulation puts the plant back to normal. All readings, alarms and faults are simulated training data.</li>
+        <li>Routine Inspection: walk the round, record each inspection point as normal or abnormal (identifying the supply and return lines on the way), and find one randomly chosen abnormality: a closed standby pump valve, high leaving water, a pump seal leak, a raised refrigerant reading or warm condenser water.</li>
+        <li>Valve Identification: find five valves from their function, with the names hidden until you answer. Wrong picks explain what that valve does, and a hint appears.</li>
+        <li>Pump Failure: "PUMP P-01 (CHWP-1): FAULT DETECTED". Acknowledge it, locate the pump, read its drive and both pumps, then choose what the evidence shows and how to respond, including unsafe options and their consequences.</li>
+        <li>Water Leak: a drip and puddle at one of three real connections (a pump seal on each circuit, or a chiller valve flange behind the rail). Find it, name the equipment, choose the accurate report and the safe response.</li>
+        <li>High Chilled Water Temperature: the chiller panel, gauges and trend show warm condenser water limiting the chiller. Compare supply and return, find the likely cause and respond.</li>
+        <li>Equipment Knowledge Mode adds common issues and what technicians inspect to every equipment panel. Each exercise ends with a score by category, the objectives met and feedback, with Retry.</li>
+        <li>Responses follow general good practice and need review against the facility's own procedures before use in real training.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>Fire protection, relief venting and finer details</h3>
+      <ul>
+        <li>Wet-pipe sprinkler system: a riser in the corner with an OS&amp;Y control valve, check valve, flow switch, gauge and drain; a main along the wall, branch lines and upright heads under the deck on hangers. Click any part to inspect it.</li>
+        <li>Refrigerant relief vent: lines from the chiller's relief valves join a supported header that rises through the roof deck.</li>
+        <li>Brass valve tags on chains, motor nameplates, water box drains and high-point vents, and a chainwheel on the high condenser-water balancing valve.</li>
+        <li>Materials: lighter galvanized steel, a matte compressor motor, brushed-stainless door hardware.</li>
+        <li>Labels and signs shrink text to fit and no longer spill into each other (the EXIT sign showed a fragment of another label).</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>No more invisible walls; guard rails where access is restricted</h3>
+      <ul>
+        <li>Collision now follows each physical piece. Before, objects made of many separate parts (all the floor stands, the pump disconnect conduits) blocked whole stretches of open floor.</li>
+        <li>The refrigerant sensor tubing ran across the floor and walled off the area behind the chiller. It now runs overhead to a sample point on a stand.</li>
+        <li>Safety-yellow guard rails (top rail at 1.07 m, mid rail, toe board) fence the crowded valve area at the chiller's water connections and the too-narrow gap behind it, with authorized-personnel signs. Click any valve over the rail to inspect it.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>A working plant and a training mode</h3>
+      <ul>
+        <li>Connected piping: chilled water supply runs from the evaporator to the data hall; the return comes back through the air separator (with the expansion tank) and the CHW pumps into the evaporator. Condenser water drops from the cooling tower to the CW pumps and into the condenser, and returns up through the roof.</li>
+        <li>Insulated chilled-water pipes with aluminium jackets; green condenser-water pipes; Y-strainers, suction isolation valves, a minimum-flow bypass with a motorized valve, a motorized chiller isolation valve and a balancing valve. Trapeze and clevis hangers to the deck, and floor stands.</li>
+        <li>A drive and a lockable local disconnect for every pump, and a motor control center (MCC-1) with its working clearance.</li>
+        <li>Room: 6 m exposed deck with steel beams, linear LED fixtures, a supply duct with registers, an exhaust louver, a low-level refrigerant exhaust, epoxy concrete floor, walkway and clearance markings, emergency shutoff, fire alarm, signage and pipe markers.</li>
+        <li>Training: click equipment to inspect it (chiller, pumps, valves, gauges, pipes, electrical panels and more). Readings are simulated. Valves can be opened and closed; the training valves' handwheels turn. The toolbar highlights each pipe circuit in its own color. Drag to look around.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>Clearer drives and panel tag</h3>
+      <ul>
+        <li>The two pump drive cabinets moved along the left wall toward the door, out from behind the pump pipes and valves.</li>
+        <li>The yellow CH-1 tag on the chiller control panel moved above the screen, which was covering it.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>Holding 60 fps</h3>
+      <ul>
+        <li>A quality ladder, after Data Hall 01: when frames miss 60 Hz the room lowers resolution first, then turns off bloom, contact shadows and MSAA, then lowers resolution again. It climbs back after 8 calm seconds, and stops climbing if a step up fails.</li>
+        <li>Equipment draws before the room shell, so walls and floor hidden behind it are skipped rather than shaded and covered.</li>
+        <li>The live screens repaint on alternate frames (control panel, then drives and gauges), so no single frame carries both.</li>
+        <li>Benchmark at 1280 × 720: 2.0 ms a frame on average, 4.0 ms at the 95th percentile (was 2.8–5.1 and 5.5–12.6).</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>The whole room, rebuilt for fidelity</h3>
+      <ul>
+        <li>Lighting after Data Hall 01: twelve panel lights with GGX highlights, an overhead shadow map, contact ambient occlusion (SSAO), bloom on lights and screens, ACES tone mapping.</li>
+        <li>Surfaces: 60 cm floor tiles that vary tile to tile, newer replacements, a perforated row, wear and scuffs along the walking routes; block walls with a darker wainscot; lay-in ceiling tiles.</li>
+        <li>Room modelled in Blender: double door with vision panels, push bars and closers, lit exit sign, emergency light, supply diffusers, sprinklers, a concrete pad and keep-clear stripe, a floor drain, fire extinguisher and eyewash station.</li>
+        <li>Plant: four end-suction pumps on inertia bases with spring isolators, check and butterfly valves and gauges; expansion tank, air separator, pot feeder; two pump drives; cable tray on threaded rod; refrigerant monitor with strobe; a disconnect with conduit to the chiller.</li>
+        <li>Live screens: the chiller HMI (leaving water, load, power, a 60 s trend), pump drive readouts, the refrigerant monitor, and gauge needles that flutter. Pipe markers with flow arrows, pump tags, nameplate and safety signs.</li>
+        <li>Water drifts along the pipes in its flow direction. A compressor and pump hum gets louder as you walk up to them (it starts after your first click).</li>
+        <li>The project is now linked to a Rive file (Evocs, Shared Project), which removes the watermark. Text uses outlines baked from the fonts, since this runtime version has no font API.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>Playing the real Rive file</h3>
+      <ul>
+        <li>This page now plays the signed <code>chiller_room.riv</code> with <code>@rive-app/webgl2</code> 2.43.1, so it is the same file as the Rive preview. The hand-written WebGL copy is gone.</li>
+        <li>The runtime is started with <code>enableGPUCanvas: true</code>, which is off by default and which the scene's shader needs. Data Hall 01 showed the way.</li>
+        <li>The page passes your keys to the scene, since this runtime version only handles Tab itself.</li>
+        <li><code>main.luau</code> now reads Shift from each key press, because web runtimes don't send Shift on its own.</li>
+        <li>The floor plan and position readout are gone, because the player's position now lives inside the Rive script.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>Detailed chiller in the Rive build</h3>
+      <ul>
+        <li>The Rive build draws the Blender chiller from <code>chiller_vertices.bin</code> and <code>chiller_indices.bin</code>.</li>
+        <li>Collision reaches the valve handwheels on the water risers.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>Detailed chiller from Blender</h3>
+      <ul>
+        <li>A centrifugal chiller modelled in <code>chiller_hifi.blend</code>: 56,772 triangles.</li>
+        <li>Insulated evaporator, condenser, bolted water boxes, compressor with volute and gearbox, ribbed motor, four water risers with valves and gauges, and a control panel with a touchscreen.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-09">2026-10-09</time>
+      <h3>Moved the project to its own folder</h3>
+      <ul>
+        <li>Moved from <code>~/EVOCS Website/chiller-room</code> to <code>~/chiller-room</code>.</li>
+      </ul>
+    </article>
+    <article class="entry">
+      <time datetime="2026-10-08">2026-10-08</time>
+      <h3>First walkable build</h3>
+      <ul>
+        <li>A 20 × 14 × 4.5 m room with 60 cm floor tiles, a ceiling grid and 12 light panels.</li>
+      </ul>
+    </article>
+    <div style="display:grid;gap:8px">
+      <h3>Open it on your Mac</h3>
+      <p>Paste this into Terminal:</p>
+      <pre>cd ~/chiller-room &amp;&amp; ~/.rive/bin/rive .</pre>
+    </div>
+  </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@rive-app/webgl2@2.43.1/rive.js"></script>
+<script>
+(function () {
+  var canvas = document.getElementById("view");
+  var statusEl = document.getElementById("status");
+  var hint = document.getElementById("hint");
+  function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = "pill" + (cls ? " " + cls : ""); }
+  function fail(text) {
+    setStatus("Not running", "bad");
+    document.getElementById("errText").textContent = text;
+    document.getElementById("err").hidden = false;
+    hint.classList.add("gone");
+  }
+  if (!window.rive) { fail("The Rive web runtime couldn't be downloaded. Check your connection and reload the page."); return; }
+
+  // The runtime's .wasm ships beside the page, because the page can't fetch it from a CDN.
+  rive.RuntimeLoader.setWasmUrl(new URL("rive.wasm", location.href).href);
+
+  // The .riv ships as base64 text, because artifacts don't serve raw binary files.
+  var r = null;
+  // A fresh name per build (and no-cache) so a browser never keeps playing an older scene.
+  var BUILD = "20261015-1058";
+  document.getElementById("build").textContent = "build " + BUILD;
+  function getScene(url) {
+    return fetch(url, { cache: "no-cache" }).then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.text(); });
+  }
+  // The scene ships in PARTS pieces (each under the artifact's per-file size limit), joined here.
+  var PARTS = 3;
+  var parts = [];
+  for (var pi = 0; pi < PARTS; pi++) parts.push(getScene("chiller_room.riv.b64." + pi + ".txt?v=" + encodeURIComponent(BUILD)));
+  Promise.all(parts).then(function (texts) { return texts.join(""); })
+    .then(function (text) {
+      var s = atob(text.trim()), bytes = new Uint8Array(s.length);
+      for (var i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+      setStatus("Starting the scene");
+      r = new rive.Rive({
+        buffer: bytes.buffer,
+        canvas: canvas,
+        autoplay: true,
+        // The script-only project gets this state machine at build time.
+        stateMachine: "State Machine 1",
+        // Off by default in the web runtime; without it the script's shader lookup returns nil.
+        enableGPUCanvas: true,
+        layout: new rive.Layout({ fit: rive.Fit.Layout }),
+        // Binds the scene's Progress view model: the scene reports games through it, the page sends saved progress.
+        autoBind: true,
+        onLoad: function () {
+          r.resizeDrawingSurfaceToCanvas();
+          linkScene();
+          sendScale();
+          sendSound();
+          setStatus("Running", "ok");
+        },
+        onLoadError: function () { fail("The Rive runtime rejected chiller_room.riv. Rebuild it with rive . --publish so its scripts are signed."); }
+      });
+    })
+    .catch(function (e) { fail("chiller_room.riv couldn't be loaded (" + e.message + ")."); });
+
+  window.addEventListener("resize", function () { if (r) { r.resizeDrawingSurfaceToCanvas(); sendScale(); } });
+
+  // The web runtime tells the scene a scale of 1 even on Retina screens, so its UI and
+  // 3D view would render at half resolution. Report the device pixel ratio as a key
+  // main.luau reserves (PAGE_SCALE_KEY + ratio * 100).
+  function sendScale() {
+    var sm = playingMachine();
+    if (!sm) return;
+    if (!sm.focusState().hasFocus) sm.focusNext();
+    var code = 10000 + Math.round((window.devicePixelRatio || 1) * 100);
+    sm.keyInput(code, 0, true, false);
+    sm.keyInput(code, 0, false, false);
+  }
+
+  // ---- Sound toggle: sent as keys main.luau reserves (9000 off, 9001 on). Remembered per browser.
+  var soundBtn = document.getElementById("sound"), soundOn = true;
+  try { soundOn = localStorage.getItem("chiller-sound") !== "off"; } catch (e) {}
+  function sendSound() {
+    var sm = playingMachine();
+    if (!sm) return;
+    if (!sm.focusState().hasFocus) sm.focusNext();
+    var code = soundOn ? 9001 : 9000;
+    sm.keyInput(code, 0, true, false);
+    sm.keyInput(code, 0, false, false);
+  }
+  function setSound(on) {
+    soundOn = on;
+    soundBtn.textContent = on ? "Sound on" : "Sound off";
+    soundBtn.setAttribute("aria-pressed", String(on));
+    try { localStorage.setItem("chiller-sound", on ? "on" : "off"); } catch (e) {}
+    sendSound();
+  }
+  setSound(soundOn);
+  soundBtn.addEventListener("click", function () { setSound(!soundOn); canvas.focus(); });
+  window.addEventListener("keydown", function (e) { if (e.code === "KeyM" && !e.repeat && !e.metaKey && !e.ctrlKey && !inUi(e)) setSound(!soundOn); });
+
+  // ---- Keys: forward to the scene's focus tree as GLFW codes, which main.luau expects.
+  var GLFW = { KeyW: 87, KeyQ: 81, KeyS: 83, KeyE: 69, KeyR: 82, ArrowRight: 262, ArrowLeft: 263, ArrowDown: 264, ArrowUp: 265, Escape: 256, Space: 32 };
+  var held = {}, virtualHeld = {};
+
+  function playingMachine() {
+    var a = r && r.animator;
+    if (!a || !a.stateMachines) return null;
+    for (var i = 0; i < a.stateMachines.length; i++) if (a.stateMachines[i].playing) return a.stateMachines[i].instance;
+    return null;
+  }
+  function send(code, pressed, repeat) {
+    var sm = playingMachine();
+    if (!sm || GLFW[code] === undefined) return;
+    // The scene's script node only hears keys while it holds focus.
+    if (!sm.focusState().hasFocus) sm.focusNext();
+    sm.keyInput(GLFW[code], 0, pressed, repeat);
+  }
+  function resendHeld() {
+    Object.keys(held).concat(Object.keys(virtualHeld)).forEach(function (c) { send(c, true, true); });
+  }
+  function releaseAll() {
+    Object.keys(held).forEach(function (c) { send(c, false, false); });
+    held = {};
+  }
+  function inUi(e) { return e.target && e.target.closest && e.target.closest("button, input, .panel, .modal"); }
+
+  // Command (and Control) belong to the browser: Cmd+R, Cmd+W and the rest work as usual and never
+  // reach the room. macOS also stops sending key releases while Command is held, so pressing or
+  // letting go of it releases every movement key: nothing is left "held" and walking on its own.
+  function isModifier(e) { return e.key === "Meta" || e.key === "Control" || e.key === "OS"; }
+  var modifierDown = false;
+  window.addEventListener("keydown", function (e) {
+    if (isModifier(e)) { modifierDown = true; releaseAll(); return; }
+    if (e.metaKey || e.ctrlKey || modifierDown) return;
+    if (inUi(e)) return;
+    if (GLFW[e.code] === undefined) return;
+    e.preventDefault();
+    hint.classList.add("gone");
+    if (!e.repeat) held[e.code] = true;
+    send(e.code, true, e.repeat);
+  });
+  window.addEventListener("keyup", function (e) {
+    if (isModifier(e)) { modifierDown = false; releaseAll(); return; }
+    if (GLFW[e.code] === undefined) return;
+    delete held[e.code];
+    send(e.code, false, false);
+  });
+  window.addEventListener("blur", function () { modifierDown = false; releaseAll(); });
+  document.addEventListener("visibilitychange", function () { if (document.hidden) { modifierDown = false; releaseAll(); } });
+  canvas.addEventListener("pointerdown", function () {
+    canvas.focus();
+    hint.classList.add("gone");
+    var sm = playingMachine();
+    if (sm && !sm.focusState().hasFocus) sm.focusNext();
+    sendScale();
+    sendSound();
+  });
+
+  // ---- Touch: two sticks that press the same keys.
+  function stick(el, keys) {
+    var knob = el.querySelector("span"), id = null, active = {};
+    function apply(x, y) {
+      var want = {};
+      if (y > 0.35) want[keys.up] = 1;
+      if (y < -0.35) want[keys.down] = 1;
+      if (x > 0.35) want[keys.right] = 1;
+      if (x < -0.35) want[keys.left] = 1;
+      Object.keys(active).forEach(function (c) { if (!want[c]) { delete active[c]; delete virtualHeld[c]; send(c, false, false); } });
+      Object.keys(want).forEach(function (c) { if (!active[c]) { active[c] = 1; virtualHeld[c] = 1; send(c, true, false); } });
+    }
+    function move(e) {
+      var b = el.getBoundingClientRect(), R = b.width / 2, max = R - 24;
+      var dx = e.clientX - (b.left + R), dy = e.clientY - (b.top + R), len = Math.hypot(dx, dy);
+      if (len > max) { dx = dx / len * max; dy = dy / len * max; }
+      knob.style.transform = "translate(" + dx + "px," + dy + "px)";
+      apply(dx / max, -dy / max);
+    }
+    el.addEventListener("pointerdown", function (e) { id = e.pointerId; el.setPointerCapture(id); hint.classList.add("gone"); move(e); });
+    el.addEventListener("pointermove", function (e) { if (e.pointerId === id) move(e); });
+    function end(e) { if (e.pointerId !== id) return; id = null; knob.style.transform = ""; apply(0, 0); }
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+  }
+  stick(document.getElementById("moveStick"), { up: "KeyW", down: "KeyS", left: "KeyQ", right: "KeyE" });
+  stick(document.getElementById("lookStick"), { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight" });
+
+  // ---- Controls: open on arrival, tucked away once you start moving or clicking.
+  var keysEl = document.getElementById("keys"), keysBtn = document.getElementById("openKeys");
+  function showKeys(on) { keysEl.hidden = !on; keysBtn.setAttribute("aria-expanded", String(on)); }
+  keysBtn.addEventListener("click", function () { showKeys(keysEl.hidden); canvas.focus(); });
+  window.addEventListener("keydown", function (e) { if (e.code === "KeyC" && !e.repeat && !e.metaKey && !e.ctrlKey && !inUi(e)) showKeys(keysEl.hidden); });
+  window.addEventListener("keydown", function (e) { if (!inUi(e) && !e.metaKey && !e.ctrlKey && GLFW[e.code] !== undefined) showKeys(false); });
+  canvas.addEventListener("pointerdown", function () { showKeys(false); });
+
+  // ---- Change log panel
+  var logEl = document.getElementById("log"), openBtn = document.getElementById("openLog");
+  openBtn.addEventListener("click", function () { logEl.hidden = !logEl.hidden; openBtn.setAttribute("aria-expanded", String(!logEl.hidden)); });
+  document.getElementById("closeLog").addEventListener("click", function () { logEl.hidden = true; openBtn.setAttribute("aria-expanded", "false"); canvas.focus(); });
+
+  // ---- Frames per second, averaged over half-second windows
+  var rf = document.getElementById("rf"), frames = 0, start = performance.now();
+  (function tick(now) {
+    frames++;
+    if (now - start >= 500) { rf.textContent = Math.round(frames * 1000 / (now - start)); frames = 0; start = now; }
+    requestAnimationFrame(tick);
+  })(start);
+
+  // ---- Progression: XP, rank, badges, daily shift, leaderboard (nicknames only).
+  // The scene reports each finished game and exercise on its "report" string (seq|json lines);
+  // the page keeps the progress and sends back best scores, today's shift and the streak on "sync".
+  var RANKS = [[0, "Trainee"], [100, "Apprentice Tech"], [300, "Plant Technician"], [700, "Senior Technician"], [1300, "Shift Lead"], [2200, "Chief Engineer"], [3500, "Plant Legend"]];
+  var EXERCISES = ["pump", "leak", "valves", "temp", "routine"];
+  var EX_NAMES = { pump: "Pump Failure", leak: "Water Leak", valves: "Valve Hunt", temp: "Hot Chilled Water", routine: "Inspection Round", night: "Night Shift" };
+  var BADGES = [
+    ["first", "First Shift", "Finish any exercise"],
+    ["gold", "Gold Rush", "Get gold in a mini game"],
+    ["flawless", "Flawless", "Finish an exercise with 100%"],
+    ["safety", "Safety First", "Gold in the lockout game"],
+    ["detective", "Detective", "Crack an evidence board first time"],
+    ["combo", "Combo King", "A x4 combo in the Inspection Round"],
+    ["hard", "Hard Hat", "Finish an exercise in hard mode"],
+    ["daily3", "On a Roll", "A 3-day shift streak"],
+    ["allgold", "Full Set", "Gold in all five exercises"],
+    ["night", "Night Owl", "Survive the Night Shift"],
+    ["round2", "Next Level", "Finish every exercise and unlock Round 2"]
+  ];
+  var P = { xp: 0, best: {}, badges: {}, streak: 0, dailyDay: -1, lastDaily: -1, nick: "", asked: false, round2: false };
+  try { var saved = JSON.parse(localStorage.getItem("chiller-progress") || "null"); if (saved) for (var k in saved) P[k] = saved[k]; } catch (e) {}
+  var db = null, me = null, vmi = null, lastSeq = 0;
+  var today = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 86400000);
+  var dailyEx = EXERCISES[today % EXERCISES.length];
+  var dailySeed = (today * 7919) % 2147483646 + 1;
+
+  function rankOf(xp) { var i = 0; while (i + 1 < RANKS.length && xp >= RANKS[i + 1][0]) i++; return i; }
+  function streakNow() { return P.lastDaily >= today - 1 ? P.streak : 0; }
+  function golds() { var n = 0; Object.keys(P.best).forEach(function (x) { if ((P.best[x] || 0) >= 90) n++; }); return n; }
+  function save() {
+    try { localStorage.setItem("chiller-progress", JSON.stringify(P)); } catch (e) {}
+    if (db && me) {
+      db.doc("data/users/" + me + "/progress/me").set(P).catch(function () {});
+      if (P.nick) db.doc("board/" + me).set({ nick: P.nick, xp: P.xp, rank: RANKS[rankOf(P.xp)][1], golds: golds(), streak: streakNow(), badges: Object.keys(P.badges).length, updated: Date.now() }).catch(function () {});
+    }
+  }
+  function renderProg(gain) {
+    var i = rankOf(P.xp), lo = RANKS[i][0], hi = i + 1 < RANKS.length ? RANKS[i + 1][0] : lo;
+    document.getElementById("rankName").textContent = RANKS[i][1];
+    document.getElementById("rankXp").textContent = P.xp + " XP" + (hi > lo ? " / " + hi : "");
+    document.getElementById("xpFill").style.width = (hi > lo ? Math.min(100, (P.xp - lo) / (hi - lo) * 100) : 100) + "%";
+    var st = streakNow(), se = document.getElementById("streak");
+    se.hidden = st < 1; se.textContent = st + "-day streak";
+    if (gain) {
+      var g = document.createElement("span"); g.className = "xpgain"; g.textContent = "+" + gain + " XP";
+      g.style.left = "230px"; document.getElementById("prog").appendChild(g);
+      setTimeout(function () { g.remove(); }, 1500);
+    }
+    renderBadges();
+  }
+  var popQueue = [], popBusy = false;
+  function pop(icon, kicker, title, detail) {
+    popQueue.push([icon, kicker, title, detail]);
+    if (!popBusy) nextPop();
+  }
+  function nextPop() {
+    var p = popQueue.shift(); if (!p) { popBusy = false; return; }
+    popBusy = true;
+    document.getElementById("popIcon").textContent = p[0]; document.getElementById("popK").textContent = p[1];
+    document.getElementById("popT").textContent = p[2]; document.getElementById("popD").textContent = p[3];
+    var el = document.getElementById("pop"); el.classList.add("show");
+    setTimeout(function () { el.classList.remove("show"); setTimeout(nextPop, 400); }, 2600);
+  }
+  function award(id) {
+    if (P.badges[id]) return;
+    P.badges[id] = Date.now();
+    BADGES.forEach(function (b) { if (b[0] === id) pop("🏅", "Badge unlocked", b[1], b[2]); });
+  }
+  function addXp(n) {
+    var before = rankOf(P.xp);
+    P.xp += n;
+    var after = rankOf(P.xp);
+    renderProg(n);
+    if (after > before) pop("⬆", "Level up!", RANKS[after][1], after + 1 < RANKS.length ? "Next: " + RANKS[after + 1][1] + " at " + RANKS[after + 1][0] + " XP" : "You've reached the top rank.");
+  }
+  function onEvent(ev) {
+    var mult = (ev.hard ? 2 : 1) * (ev.round >= 2 ? 1.5 : 1);
+    if (ev.t === "round") {
+      P.round2 = true;
+      award("round2");
+      pop("🚀", "Round 2 unlocked", "Harder faults ahead", "Every exercise again, a step harder. Round 2 XP is worth 1.5×.");
+      save(); sendSync();
+      return;
+    }
+    if (ev.t === "game") {
+      addXp(Math.round((10 * ev.stars + (ev.stars >= 3 ? 10 : 0)) * mult));
+      if (ev.stars >= 3) award("gold");
+      if (ev.game === "lockout" && ev.stars >= 3) award("safety");
+      if (ev.game === "evidence" && ev.stars >= 3) award("detective");
+    } else if (ev.t === "done") {
+      var gain = Math.round(ev.pct / 2 * mult);
+      var key = ev.round >= 2 ? ev.ex + "2" : ev.ex;
+      award("first");
+      if (ev.pct >= 100) award("flawless");
+      if (ev.hard) award("hard");
+      if (ev.combo >= 4) award("combo");
+      if (ev.ex === "night") award("night");
+      var prev = P.best[key] || 0;
+      if (ev.pct > prev) P.best[key] = ev.pct;
+      if (prev < 90 && ev.pct >= 90 && EX_NAMES[ev.ex]) pop("🥇", ev.round >= 2 ? "Round 2 gold" : "Gold medal", EX_NAMES[ev.ex], ev.ex === "night" ? "The finale, conquered." : "Hard mode is unlocked for it.");
+      if (EXERCISES.every(function (x) { return (P.best[x] || 0) >= 90; })) award("allgold");
+      if (ev.daily && P.dailyDay !== today) {
+        P.streak = P.lastDaily === today - 1 ? P.streak + 1 : 1;
+        P.lastDaily = today; P.dailyDay = today;
+        gain += 50;
+        pop("🔥", "Today's shift done", P.streak + "-day streak", "+50 XP bonus. Come back tomorrow for a new fault.");
+        if (P.streak >= 3) award("daily3");
+      }
+      addXp(gain);
+      if (!P.nick && !P.asked) setTimeout(askNick, 3500);
+    }
+    save();
+    sendSync();
+  }
+  function sendSync() {
+    if (!vmi) return;
+    var best = Object.keys(P.best).map(function (k) { return k + ":" + P.best[k]; }).join(",");
+    var text = "best=" + best + ";daily=" + dailyEx + ":" + dailySeed + ":" + (P.dailyDay === today ? 1 : 0) + ";streak=" + streakNow() + (P.round2 ? ";round=2" : "");
+    try { var s = vmi.string("sync"); if (s && s.value !== text) s.value = text; } catch (e) {}
+  }
+  function readReports(text) {
+    (text || "").split("\n").forEach(function (line) {
+      var bar = line.indexOf("|"); if (bar < 0) return;
+      var seq = parseInt(line.slice(0, bar), 10);
+      if (!(seq > lastSeq)) return;
+      lastSeq = seq;
+      try { onEvent(JSON.parse(line.slice(bar + 1))); } catch (e) {}
+    });
+  }
+  function linkScene() {
+    try { vmi = r.viewModelInstance; } catch (e) { vmi = null; }
+    if (!vmi) return;
+    sendSync();
+    var rep = null;
+    try { rep = vmi.string("report"); } catch (e) {}
+    if (!rep) return;
+    try { rep.on(function () { readReports(rep.value); }); } catch (e) {}
+    setInterval(function () { readReports(rep.value); }, 700); // a backstop if a change event is missed
+  }
+
+  // Leaderboard and nickname.
+  var boardEl = document.getElementById("board"), boardBtn = document.getElementById("openBoard");
+  var unsubBoard = null, boardDocs = [];
+  function renderBoard() {
+    var list = document.getElementById("boardList"); list.textContent = "";
+    if (!db) { document.getElementById("boardNote").textContent = "The shared leaderboard isn't available in this view. Your progress is saved in this browser."; return; }
+    if (!boardDocs.length) { var li = document.createElement("li"); li.innerHTML = "<span class='pos'>–</span><span class='who'><b>No one yet</b><span>Finish an exercise to get on the board.</span></span><span></span>"; list.appendChild(li); return; }
+    boardDocs.forEach(function (d, i) {
+      var v = d.data() || {}, li = document.createElement("li");
+      if (d.id === me) li.className = "me";
+      var pos = document.createElement("span"); pos.className = "pos"; pos.textContent = i + 1;
+      var who = document.createElement("span"); who.className = "who";
+      var b = document.createElement("b"); b.textContent = String(v.nick || "Technician").slice(0, 20) + (d.id === me ? " (you)" : "");
+      var sub = document.createElement("span"); sub.textContent = String(v.rank || "") + " · " + (v.golds | 0) + " gold" + ((v.streak | 0) > 0 ? " · " + (v.streak | 0) + "-day streak" : "");
+      who.appendChild(b); who.appendChild(sub);
+      var xp = document.createElement("span"); xp.className = "xp"; xp.textContent = (v.xp | 0) + " XP";
+      li.appendChild(pos); li.appendChild(who); li.appendChild(xp); list.appendChild(li);
+    });
+  }
+  function renderBadges() {
+    var el = document.getElementById("badgeList"); el.textContent = "";
+    BADGES.forEach(function (b) {
+      var d = document.createElement("div"); d.className = "badge" + (P.badges[b[0]] ? " got" : "");
+      var t = document.createElement("b"); t.textContent = (P.badges[b[0]] ? "🏅 " : "") + b[1];
+      d.appendChild(t); d.appendChild(document.createTextNode(b[2])); el.appendChild(d);
+    });
+  }
+  function showBoard(on) {
+    boardEl.hidden = !on; boardBtn.setAttribute("aria-expanded", String(on));
+    document.getElementById("nickInput").value = P.nick || "";
+    if (on && db && !unsubBoard) {
+      unsubBoard = db.collection("board").orderBy("xp", "desc").limit(50).onSnapshot(function (snap) { boardDocs = snap.docs; renderBoard(); }, function () { renderBoard(); });
+    }
+    renderBoard(); renderBadges();
+    if (!on) canvas.focus();
+  }
+  boardBtn.addEventListener("click", function () { showBoard(boardEl.hidden); });
+  document.getElementById("closeBoard").addEventListener("click", function () { showBoard(false); });
+  function cleanNick(v) { return String(v || "").replace(/\s+/g, " ").trim().slice(0, 20); }
+  document.getElementById("nickSave").addEventListener("click", function () {
+    var n = cleanNick(document.getElementById("nickInput").value); if (!n) return;
+    P.nick = n; save(); renderBoard();
+  });
+  var nickModal = document.getElementById("nickModal");
+  function askNick() {
+    P.asked = true; save();
+    document.getElementById("nickFirst").value = "Tech-" + (1000 + Math.floor(Math.random() * 9000));
+    nickModal.hidden = false; document.getElementById("nickFirst").select();
+  }
+  document.getElementById("nickGo").addEventListener("click", function () {
+    var n = cleanNick(document.getElementById("nickFirst").value); if (!n) return;
+    P.nick = n; save(); nickModal.hidden = true; canvas.focus();
+    pop("🏁", "You're on the board", n, "Open Leaderboard (top right) to see how you rank.");
+  });
+  document.getElementById("nickSkip").addEventListener("click", function () { nickModal.hidden = true; canvas.focus(); });
+  document.getElementById("nickFirst").addEventListener("keydown", function (e) { if (e.key === "Enter") document.getElementById("nickGo").click(); });
+
+  renderProg(0);
+  if (window.claude && window.claude.use) {
+    Promise.all([window.claude.use("db"), window.claude.use("user")]).then(function (res) {
+      var d = res[0], u = res[1];
+      if (!d || !u) return;
+      return u.id().then(function (id) {
+        if (!id) return;
+        db = d; me = id;
+        // Progress follows the person across browsers; keep whichever copy has more XP.
+        return db.doc("data/users/" + me + "/progress/me").get().then(function (snap) {
+          var remote = snap.exists ? snap.data() : null;
+          if (remote && (remote.xp | 0) > P.xp) { var copy = JSON.parse(JSON.stringify(remote)); for (var k in copy) P[k] = copy[k]; }
+          renderProg(0); sendSync(); save();
+        });
+      });
+    }).catch(function () {});
+  }
+})();
+</script>
